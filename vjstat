@@ -1,0 +1,79 @@
+#!/usr/bin/env python
+
+"""
+Real-time visualisation of the JVM heap via `jstat`.
+"""
+
+import sys, zmq, pyqtgraph as pg
+from pyqtgraph.Qt import QtGui, QtCore
+from collections import deque, defaultdict
+from functools import partial
+
+size = 1000
+data = defaultdict(partial(deque, maxlen=size))
+plots = dict()
+mapping = dict(eu=5, s0=2, s1=3, ou=7)
+
+def main(args):
+    app = QtGui.QApplication(args)
+    win = pg.GraphicsWindow(title="JVM Heap Plot")
+    win.setWindowTitle("JVM Heap Plot")
+    pg.setConfigOptions(antialias=True)
+    for key, title in [('eu', 'eden space'),
+                       ('s0', 'survivor space 0'),
+                       ('s1', 'survivor space 1'),
+                       ('ou', 'old space')]:
+        plot = win.addPlot(title=title)
+        plot.showGrid(x=True, y=True)
+        plot.setLabel('left', 'size', units='B')
+        plot.setLabel('bottom', 'time', units='100ms')
+        plots[key] = plot.plot(list(data[key]))
+        win.nextRow()
+    timer = QtCore.QTimer()
+    timer.timeout.connect(update_plots)
+    timer.start(100)
+    stream = socket_stream(args[1]) if len(args) > 1 else sys.stdin
+    thread = Thread(partial(process, stream))
+    thread.start()
+    QtGui.QApplication.instance().exec_()
+
+def update_plots():
+    for key, plot in plots.iteritems():
+        plot.setData(data[key])
+
+def socket_stream(addr):
+    ctx = zmq.Context.instance()
+    socket = ctx.socket(zmq.PULL)
+    if '*' in addr:
+        socket.bind(addr)
+    else:
+        socket.connect(addr)
+    while True:
+        yield socket.recv_string()
+
+def file_stream(stream):
+    while True:
+        yield stream.readline().rstrip('\n')
+
+def process(stream):
+    for i, line in enumerate(stream, 1):
+        if not line.strip() or line.startswith(' '):
+            continue
+        columns = line.split()
+        sys.stdout.write("\r%d %d" % (len(columns), i))
+        sys.stdout.flush()
+        if len(columns) < 7:
+            continue
+        for key, idx in mapping.iteritems():
+            data[key].append(int(float(columns[idx]) * 1024))
+
+class Thread(QtCore.QThread):
+    def __init__(self, function, parent=None):
+        self.function = function
+        super(Thread, self).__init__(parent)
+    def run(self):
+        self.function()
+
+if __name__ == '__main__':
+   sys.exit(main(sys.argv))
+
