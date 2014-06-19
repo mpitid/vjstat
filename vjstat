@@ -18,7 +18,8 @@ def main(args):
     pg.setConfigOptions(antialias=True)
 
     plots = dict()
-    data = defaultdict(partial(deque, maxlen=opts.window))
+    size = None if opts.window <= 0 else opts.window
+    data = defaultdict(partial(deque, maxlen=size))
     mapping = dict(eu=5, s0=2, s1=3, ou=7)
 
     for key, title in [('eu', 'eden space'),
