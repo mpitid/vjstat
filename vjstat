@@ -4,21 +4,23 @@
 Real-time visualisation of the JVM heap via `jstat`.
 """
 
-import sys, zmq, pyqtgraph as pg
+import sys, argparse, zmq, pyqtgraph as pg
 from pyqtgraph.Qt import QtGui, QtCore
 from collections import deque, defaultdict
 from functools import partial
 
-size = 1000
-data = defaultdict(partial(deque, maxlen=size))
-plots = dict()
-mapping = dict(eu=5, s0=2, s1=3, ou=7)
 
 def main(args):
+    opts = parse_cli(args[1:])
     app = QtGui.QApplication(args)
     win = pg.GraphicsWindow(title="JVM Heap Plot")
     win.setWindowTitle("JVM Heap Plot")
     pg.setConfigOptions(antialias=True)
+
+    plots = dict()
+    data = defaultdict(partial(deque, maxlen=opts.window))
+    mapping = dict(eu=5, s0=2, s1=3, ou=7)
+
     for key, title in [('eu', 'eden space'),
                        ('s0', 'survivor space 0'),
                        ('s1', 'survivor space 1'),
@@ -26,28 +28,31 @@ def main(args):
         plot = win.addPlot(title=title)
         plot.showGrid(x=True, y=True)
         plot.setLabel('left', 'size', units='B')
-        plot.setLabel('bottom', 'time', units='100ms')
+        plot.setLabel('bottom', 'time', units='%dms' % opts.interval)
         plots[key] = plot.plot(list(data[key]))
         win.nextRow()
+
     timer = QtCore.QTimer()
-    timer.timeout.connect(update_plots)
-    timer.start(100)
-    stream = socket_stream(args[1]) if len(args) > 1 else sys.stdin
-    thread = Thread(partial(process, stream))
+    timer.timeout.connect(partial(update_plots, data, plots))
+    timer.start(opts.interval)
+    stream = socket_stream(opts.socket, opts.type) if opts.socket else sys.stdin
+    thread = Thread(partial(process, stream, data, mapping))
     thread.start()
     QtGui.QApplication.instance().exec_()
 
-def update_plots():
+def update_plots(data, plots):
     for key, plot in plots.iteritems():
         plot.setData(data[key])
 
-def socket_stream(addr):
+socket_types = dict(pull=zmq.PULL, sub=zmq.SUB)
+
+def socket_stream(address, type):
     ctx = zmq.Context.instance()
-    socket = ctx.socket(zmq.PULL)
-    if '*' in addr:
-        socket.bind(addr)
+    socket = ctx.socket(socket_types[type])
+    if '*' in address:
+        socket.bind(address)
     else:
-        socket.connect(addr)
+        socket.connect(address)
     while True:
         yield socket.recv_string()
 
@@ -55,7 +60,7 @@ def file_stream(stream):
     while True:
         yield stream.readline().rstrip('\n')
 
-def process(stream):
+def process(stream, data, mapping):
     for i, line in enumerate(stream, 1):
         if not line.strip() or line.startswith(' '):
             continue
@@ -73,6 +78,19 @@ class Thread(QtCore.QThread):
         super(Thread, self).__init__(parent)
     def run(self):
         self.function()
+
+def parse_cli(args):
+    parser = argparse.ArgumentParser(description="visualise the JVM heap in real-time")
+    add = parser.add_argument
+    add('socket', nargs='?',
+        help='zmq socket address')
+    add('type', nargs='?', default='pull', choices=socket_types,
+        help='zmq socket type (%(default)r)')
+    add('-w', '--window', default=1000, type=int,
+        help='visualise the last WINDOW values (%(default)r)')
+    add('-i', '--interval', type=int, default=100,
+        help='update interval in milliseconds (%(default)r)')
+    return parser.parse_args(args)
 
 if __name__ == '__main__':
    sys.exit(main(sys.argv))
