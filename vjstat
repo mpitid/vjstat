@@ -25,7 +25,7 @@ def main(args):
     for key, title in [('eu', 'eden space'),
                        ('s0', 'survivor space 0'),
                        ('s1', 'survivor space 1'),
-                       ('ou', 'old space')]:
+                       ('ou', 'tenured space')]:
         plot = win.addPlot(title=title)
         plot.showGrid(x=True, y=True)
         plot.setLabel('left', 'size', units='B')
@@ -85,7 +85,7 @@ def parse_cli(args):
     add = parser.add_argument
     add('socket', nargs='?',
         help='zmq socket address')
-    add('type', nargs='?', default='pull', choices=socket_types,
+    add('type', nargs='?', default='sub', choices=socket_types,
         help='zmq socket type (%(default)r)')
     add('-w', '--window', default=1000, type=int,
         help='visualise the last WINDOW values (%(default)r)')
