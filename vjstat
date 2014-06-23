@@ -54,8 +54,13 @@ def socket_stream(address, type):
         socket.bind(address)
     else:
         socket.connect(address)
+    if type == 'sub':
+        socket.setsockopt(zmq.SUBSCRIBE, '')
+        fun = compose(' '.join, socket.recv_multipart)
+    else:
+        fun = socket.recv_string
     while True:
-        yield socket.recv_string()
+        yield fun()
 
 def file_stream(stream):
     while True:
@@ -72,6 +77,12 @@ def process(stream, data, mapping):
             continue
         for key, idx in mapping.iteritems():
             data[key].append(int(float(columns[idx]) * 1024))
+
+def compose(f1, f2):
+    assert(callable(f1) and callable(f2))
+    def fun(*args, **kwargs):
+        return f1(f2(*args, **kwargs))
+    return fun
 
 class Thread(QtCore.QThread):
     def __init__(self, function, parent=None):
